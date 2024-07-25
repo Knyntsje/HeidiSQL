@@ -29,6 +29,7 @@ type
     comboTiming: TComboBox;
     comboEvent: TComboBox;
     SynMemoCreateCode: TSynMemo;
+    comboOrientation: TComboBox;
     procedure btnHelpClick(Sender: TObject);
     procedure btnDiscardClick(Sender: TObject);
     procedure Modification(Sender: TObject);
@@ -40,6 +41,8 @@ type
     procedure PageControlMainChange(Sender: TObject);
   private
     { Private declarations }
+    procedure EnterEditModePg(Obj: TDBObject);
+    procedure EnterEditMode(Obj: TDBObject);
     function ComposeCreateStatement: String;
   public
     { Public declarations }
@@ -84,19 +87,28 @@ end;
 
 procedure TfrmTriggerEditor.Init(Obj: TDBObject);
 var
-  Definitions: TDBQuery;
   DBObjects: TDBObjectList;
   i: Integer;
-  Found: Boolean;
-  Body: String;
-  rx: TRegExpr;
 begin
   inherited;
   editName.Text := '';
   comboDefiner.Text := '';
   comboDefiner.TextHint := f_('Current user (%s)', [Obj.Connection.CurrentUserHostCombination]);
   comboDefiner.Hint := f_('Leave empty for current user (%s)', [Obj.Connection.CurrentUserHostCombination]);
-  SynMemoBody.Text := 'BEGIN'+CRLF+CRLF+'END';
+
+  if Obj.Connection.Parameters.IsAnyPostgreSQL then begin
+    SynMemoBody.Text := '';
+    lblDefiner.Visible := False;
+    comboDefiner.Visible := False;
+    comboEvent.Items.Text := comboEvent.Items.Text+'TRUNCATE';
+    comboOrientation.Items.Text := 'ROW'+CRLF+'STATEMENT';
+    comboOrientation.Visible := True;
+    comboOrientation.ItemIndex := 0;
+    lblBody.Caption := 'Trigger statement: (e.g. "EXECUTE PROCEDURE foo()"';
+  end
+  else
+    SynMemoBody.Text := 'BEGIN'+CRLF+CRLF+'END';
+
   comboEvent.ItemIndex := 0;
   comboTiming.ItemIndex := 0;
   DBObjects := MainForm.ActiveConnection.GetDBObjects(Mainform.ActiveDatabase);
@@ -108,50 +120,10 @@ begin
   if comboTable.Items.Count > 0 then
     comboTable.ItemIndex := 0;
   if ObjectExists then begin
-    // Edit mode
-    editName.Text := DBObject.Name;
-    Definitions := MainForm.ActiveConnection.GetResults('SHOW TRIGGERS FROM '+Obj.Connection.QuoteIdent(Mainform.ActiveDatabase));
-    Found := False;
-    while not Definitions.Eof do begin
-      if Definitions.Col('Trigger') = DBObject.Name then begin
-        // "Definer" column available since MySQL 5.0.17
-        comboDefiner.Text := Definitions.Col('Definer', True);
-        comboTable.ItemIndex := comboTable.Items.IndexOf(Definitions.Col('Table'));
-        comboTiming.ItemIndex := comboTiming.Items.IndexOf(UpperCase(Definitions.Col('Timing')));
-        comboEvent.ItemIndex := comboEvent.Items.IndexOf(UpperCase(Definitions.Col('Event')));
-        // "Statement" column from SHOW TRIGGERS does not escape single quotes where required.
-        // See http://www.heidisql.com/forum.php?t=16501
-        // But SHOW CREATE TRIGGER was introduced in MySQL 5.1.21
-        // See http://www.heidisql.com/forum.php?t=16662
-        if DBObject.Connection.ServerVersionInt < 50121 then begin
-          Body := Definitions.Col('Statement');
-        end else begin
-          rx := TRegExpr.Create;
-          rx.ModifierI := True;
-          rx.Expression := 'FOR\s+EACH\s+ROW\s+(.+)$';
-          try
-            Body := DBObject.Connection.GetCreateCode(DBObject);
-            if rx.Exec(Body) then
-              Body := rx.Match[1]
-            else
-              raise EDbError.CreateFmt(_('Result from previous query does not contain expected pattern: %s'), [rx.Expression]);
-          except
-            on E:EDbError do begin
-              DBObject.Connection.Log(lcError, E.Message);
-              Body := Definitions.Col('Statement');
-            end;
-          end;
-        end;
-        SynMemoBody.Text := Body;
-        SynMemoBody.TopLine := FMainSynMemoPreviousTopLine;
-        Found := True;
-        break;
-      end;
-      Definitions.Next;
-    end;
-    FreeAndNil(Definitions);
-    if not Found then
-      Raise Exception.Create(_('Trigger definition not found!'));
+    if Obj.Connection.Parameters.IsAnyPostgreSQL then
+      EnterEditModePg(obj)
+    else
+      EnterEditMode(obj);
   end else begin
     editName.Text := '';
     if MainForm.FocusedTables.Count > 0 then begin
@@ -237,7 +209,10 @@ begin
     // his statement. The user must fix such errors and re-press "Save" while we have them in memory,
     // otherwise the trigger attributes are lost forever.
     if ObjectExists then try
-      DBObject.Connection.Query('DROP TRIGGER '+DBObject.Connection.QuoteIdent(DBObject.Name));
+      if DBObject.Connection.Parameters.IsAnyPostgreSQL then
+        DBObject.Connection.Query('DROP TRIGGER '+DBObject.Connection.QuoteIdent(DBObject.Name)+' ON '+DBObject.Connection.QuoteIdent(comboTable.Text))
+      else
+        DBObject.Connection.Query('DROP TRIGGER '+DBObject.Connection.QuoteIdent(DBObject.Name));
     except
     end;
     MainForm.ActiveConnection.Query(ComposeCreateStatement);
@@ -294,6 +269,86 @@ begin
 end;
 
 
+procedure TfrmTriggerEditor.EnterEditModePg(Obj: TDBObject);
+var
+  Definitions: TDBQuery;
+  Found: Boolean;
+begin
+  editName.Text := DBObject.Name;
+  Definitions := MainForm.ActiveConnection.GetResults('SELECT * FROM '+Obj.Connection.QuoteIdent(Obj.Connection.InfSch)+'.'+Obj.Connection.QuoteIdent('triggers'));
+  Found := False;
+  while not Definitions.Eof do begin
+    if Definitions.Col('trigger_name') = DBObject.Name then begin
+      comboTable.ItemIndex := comboTable.Items.IndexOf(Definitions.Col('event_object_table'));
+      comboTiming.ItemIndex := comboTiming.Items.IndexOf(UpperCase(Definitions.Col('action_timing')));
+      comboEvent.ItemIndex := comboEvent.Items.IndexOf(UpperCase(Definitions.Col('event_manipulation')));
+      comboOrientation.ItemIndex := comboOrientation.Items.IndexOf(UpperCase(Definitions.Col('action_orientation')));
+      SynMemoBody.Text := Definitions.Col('action_statement');
+      SynMemoBody.TopLine := FMainSynMemoPreviousTopLine;
+      Found := True;
+      break;
+    end;
+    Definitions.Next;
+  end;
+  FreeAndNil(Definitions);
+  if not Found then
+    Raise Exception.Create(_('Trigger definition not found!'));
+end;
+
+
+procedure TfrmTriggerEditor.EnterEditMode(Obj: TDBObject);
+var
+  Definitions: TDBQuery;
+  Found: Boolean;
+  Body: String;
+  rx: TRegExpr;
+begin
+  editName.Text := DBObject.Name;
+  Definitions := MainForm.ActiveConnection.GetResults('SHOW TRIGGERS FROM '+Obj.Connection.QuoteIdent(Mainform.ActiveDatabase));
+  Found := False;
+  while not Definitions.Eof do begin
+    if Definitions.Col('Trigger') = DBObject.Name then begin
+      // "Definer" column available since MySQL 5.0.17
+      comboDefiner.Text := Definitions.Col('Definer', True);
+      comboTable.ItemIndex := comboTable.Items.IndexOf(Definitions.Col('Table'));
+      comboTiming.ItemIndex := comboTiming.Items.IndexOf(UpperCase(Definitions.Col('Timing')));
+      comboEvent.ItemIndex := comboEvent.Items.IndexOf(UpperCase(Definitions.Col('Event')));
+      // "Statement" column from SHOW TRIGGERS does not escape single quotes where required.
+      // See http://www.heidisql.com/forum.php?t=16501
+      // But SHOW CREATE TRIGGER was introduced in MySQL 5.1.21
+      // See http://www.heidisql.com/forum.php?t=16662
+      if DBObject.Connection.ServerVersionInt < 50121 then begin
+        Body := Definitions.Col('Statement');
+      end else begin
+        rx := TRegExpr.Create;
+        rx.ModifierI := True;
+        rx.Expression := 'FOR\s+EACH\s+ROW\s+(.+)$';
+        try
+          Body := DBObject.Connection.GetCreateCode(DBObject);
+          if rx.Exec(Body) then
+            Body := rx.Match[1]
+          else
+            raise EDbError.CreateFmt(_('Result from previous query does not contain expected pattern: %s'), [rx.Expression]);
+        except
+          on E:EDbError do begin
+            DBObject.Connection.Log(lcError, E.Message);
+            Body := Definitions.Col('Statement');
+          end;
+        end;
+      end;
+      SynMemoBody.Text := Body;
+      SynMemoBody.TopLine := FMainSynMemoPreviousTopLine;
+      Found := True;
+      break;
+    end;
+    Definitions.Next;
+  end;
+  FreeAndNil(Definitions);
+  if not Found then
+    Raise Exception.Create(_('Trigger definition not found!'));
+end;
+
+
 function TfrmTriggerEditor.ComposeCreateStatement: String;
 begin
   // CREATE
@@ -301,12 +356,19 @@ begin
   //   TRIGGER trigger_name trigger_time trigger_event
   //   ON tbl_name FOR EACH ROW trigger_stmt
   Result := 'CREATE ';
-  if comboDefiner.Text <> '' then
-    Result := Result + 'DEFINER='+DBObject.Connection.QuoteIdent(comboDefiner.Text, True, '@')+' ';
-  Result := Result + 'TRIGGER '+DBObject.Connection.QuoteIdent(editName.Text)+' '+
-    comboTiming.Items[comboTiming.ItemIndex]+' '+comboEvent.Items[comboEvent.ItemIndex]+
-    ' ON '+DBObject.Connection.QuoteIdent(comboTable.Text)+
-    ' FOR EACH ROW '+SynMemoBody.Text;
+  if DBObject.Connection.Parameters.IsAnyPostgreSQL then
+    Result := Result + 'TRIGGER '+DBObject.Connection.QuoteIdent(editName.Text)+' '+
+      comboTiming.Items[comboTiming.ItemIndex]+' '+comboEvent.Items[comboEvent.ItemIndex]+
+      ' ON '+DBObject.Connection.QuoteIdent(comboTable.Text)+
+      ' FOR EACH '+comboOrientation.Text+' '+SynMemoBody.Text
+  else begin
+    if comboDefiner.Text <> '' then
+      Result := Result + 'DEFINER='+DBObject.Connection.QuoteIdent(comboDefiner.Text, True, '@')+' ';
+    Result := Result + 'TRIGGER '+DBObject.Connection.QuoteIdent(editName.Text)+' '+
+      comboTiming.Items[comboTiming.ItemIndex]+' '+comboEvent.Items[comboEvent.ItemIndex]+
+      ' ON '+DBObject.Connection.QuoteIdent(comboTable.Text)+
+      ' FOR EACH ROW '+SynMemoBody.Text;
+  end;
 end;
 
 

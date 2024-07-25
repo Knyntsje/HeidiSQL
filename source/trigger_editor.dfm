@@ -12,9 +12,10 @@ object frmTriggerEditor: TfrmTriggerEditor
     Left = 3
     Top = 141
     Width = 694
-    Height = 13
+    Height = 15
     Align = alTop
     Caption = 'Trigger statement: (e.g. "SET NEW.columnA = TRIM(OLD.columnA)"'
+    ExplicitWidth = 357
   end
   object PageControlMain: TPageControl
     AlignWithMargins = True
@@ -33,41 +34,41 @@ object frmTriggerEditor: TfrmTriggerEditor
       ImageName = 'icons8-support'
       DesignSize = (
         686
-        103)
+        102)
       object lblDefiner: TLabel
         Left = 247
         Top = 6
-        Width = 39
-        Height = 13
+        Width = 41
+        Height = 15
         Caption = 'Definer:'
       end
       object lblName: TLabel
         Left = 3
         Top = 6
-        Width = 31
-        Height = 13
+        Width = 35
+        Height = 15
         Caption = 'Name:'
         FocusControl = editName
       end
       object lblTable: TLabel
         Left = 3
         Top = 33
-        Width = 45
-        Height = 13
+        Width = 48
+        Height = 15
         Caption = 'On table:'
       end
       object lblEvent: TLabel
         Left = 3
         Top = 59
         Width = 32
-        Height = 13
+        Height = 15
         Caption = 'Event:'
       end
       object comboDefiner: TComboBox
         Left = 304
         Top = 3
         Width = 379
-        Height = 21
+        Height = 23
         Anchors = [akLeft, akTop, akRight]
         TabOrder = 0
         Text = 'comboDefiner'
@@ -78,7 +79,7 @@ object frmTriggerEditor: TfrmTriggerEditor
         Left = 84
         Top = 3
         Width = 157
-        Height = 21
+        Height = 23
         TabOrder = 1
         Text = 'editName'
         TextHint = 'Enter trigger name'
@@ -88,7 +89,7 @@ object frmTriggerEditor: TfrmTriggerEditor
         Left = 84
         Top = 30
         Width = 599
-        Height = 21
+        Height = 23
         Style = csDropDownList
         Anchors = [akLeft, akTop, akRight]
         TabOrder = 2
@@ -98,7 +99,7 @@ object frmTriggerEditor: TfrmTriggerEditor
         Left = 84
         Top = 56
         Width = 157
-        Height = 21
+        Height = 23
         Style = csDropDownList
         TabOrder = 3
         OnChange = comboChange
@@ -107,9 +108,19 @@ object frmTriggerEditor: TfrmTriggerEditor
         Left = 247
         Top = 56
         Width = 145
-        Height = 21
+        Height = 23
         Style = csDropDownList
         TabOrder = 4
+        OnChange = comboChange
+      end
+      object comboOrientation: TComboBox
+        Left = 398
+        Top = 56
+        Width = 145
+        Height = 23
+        Style = csDropDownList
+        TabOrder = 5
+        Visible = False
         OnChange = comboChange
       end
     end
@@ -121,7 +132,7 @@ object frmTriggerEditor: TfrmTriggerEditor
         Left = 0
         Top = 0
         Width = 686
-        Height = 103
+        Height = 102
         SingleLineMode = False
         Align = alClient
         Font.Charset = DEFAULT_CHARSET
@@ -158,9 +169,9 @@ object frmTriggerEditor: TfrmTriggerEditor
   object SynMemoBody: TSynMemo
     AlignWithMargins = True
     Left = 3
-    Top = 160
+    Top = 162
     Width = 694
-    Height = 308
+    Height = 306
     Margins.Bottom = 32
     SingleLineMode = False
     Align = alClient
