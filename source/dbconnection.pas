@@ -171,6 +171,8 @@ type
       // Routine options:
       Body, Definer, Returns, DataAccess, Security, ArgTypes: String;
       Deterministic, RowsAreExact: Boolean;
+      // PG trigger options:
+      TableName: String;
 
       NodeType, GroupType: TListNodeType;
       constructor Create(OwnerConnection: TDBConnection);
@@ -6819,6 +6821,8 @@ begin
       sql := sql + ')';
       Query(sql);
     end;
+    lntTrigger:
+      Query('DROP '+UpperCase(Obj.ObjType)+' '+Obj.QuotedName+' ON '+QuoteIdent(Obj.TableName));
     else
       inherited;
   end;
@@ -7463,6 +7467,27 @@ begin
       obj.ArgTypes := Results.Col('proargtypes');
       obj.Database := db;
       obj.NodeType := lntFunction;
+      Results.Next;
+    end;
+    FreeAndNil(Results);
+  end;
+
+  try
+    Results := GetResults('SELECT * FROM '+QuoteIdent(FInfSch)+'.'+QuoteIdent('triggers'));
+  except
+    on E:EDbError do;
+  end;
+  if Assigned(Results) then begin
+    while not Results.Eof do begin
+      obj := TDBObject.Create(Self);
+      Cache.Add(obj);
+      obj.Name := Results.Col('trigger_name');
+      obj.TableName := Results.Col('event_object_table');
+      obj.Database := db;
+      obj.Schema := Results.Col('trigger_schema');
+      Obj.NodeType := lntTrigger;
+      Obj.Created := ParseDateTime(Results.Col('created'));
+      Obj.Comment := Results.Col('action_timing')+' '+Results.Col('event_manipulation')+' in table '+QuoteIdent(Results.Col('event_object_table'));
       Results.Next;
     end;
     FreeAndNil(Results);
@@ -10221,6 +10246,7 @@ begin
   NodeType := lntNone;
   GroupType := lntNone;
   Name := '';
+  TableName := '';
   Database := '';
   Schema := '';
   Rows := -1;
@@ -10255,6 +10281,7 @@ begin
   if Source is TDBObject then begin
     s := Source as TDBObject;
     Name := s.Name;
+    TableName := s.TableName;
     Column := s.Column;
     Collation := s.Collation;
     Engine := s.Engine;
